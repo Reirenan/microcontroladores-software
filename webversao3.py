@@ -14,7 +14,7 @@ import os
 # CONFIGURAÇÕES GERAIS
 # ==========================
 PORTA_SERIAL = 'COM2'
-BAUDRATE = 9600
+BAUDRATE = 115200
 TIMEOUT = 1
 
 ARQUIVO_CSV = 'historico_medicoes.csv'
@@ -64,22 +64,21 @@ def parse_linha(linha: str):
 
 
 def thread_serial():
-    global rodando, serial_conn
-
+    global rodando
     try:
-        serial_conn = serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=TIMEOUT)
-        print(f'[SERIAL] Porta {PORTA_SERIAL} aberta')
+        with serial.Serial(PORTA_SERIAL, BAUDRATE, timeout=TIMEOUT) as ser:
+            print(f'[SERIAL] Porta {PORTA_SERIAL} aberta.')
 
-        # cria CSV se não existir
-        if not os.path.exists(ARQUIVO_CSV):
-            with open(ARQUIVO_CSV, 'w', newline='') as f:
-                csv.writer(f).writerow(
-                    ['timestamp', 'rpm', 'temperatura', 'tensao', 'corrente']
-                )
+            # Cria CSV com cabeçalho, se ainda não existir
+            try:
+                with open(ARQUIVO_CSV, 'x', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(['timestamp', 'rpm', 'temperatura', 'tensao', 'corrente'])
+            except FileExistsError:
+                pass
 
-        while rodando:
-            if serial_conn.in_waiting:
-                linha = serial_conn.readline().decode(errors='ignore').strip()
+            while rodando:
+                linha = ser.readline().decode(errors='ignore').strip()
                 if not linha:
                     continue
 
@@ -88,11 +87,13 @@ def thread_serial():
 
                 with lock:
                     estado['ultima_linha'] = linha
+
                     if rpm is not None:
                         estado['rpm'] = rpm
                         estado['temperatura'] = temperatura
                         estado['tensao'] = tensao
                         estado['corrente'] = corrente
+
                         estado['historico'].append({
                             'ts': ts,
                             'rpm': rpm,
@@ -103,14 +104,13 @@ def thread_serial():
 
                 if rpm is not None:
                     with open(ARQUIVO_CSV, 'a', newline='') as f:
-                        csv.writer(f).writerow(
-                            [ts, rpm, temperatura, tensao, corrente]
-                        )
+                        writer = csv.writer(f)
+                        writer.writerow([ts, rpm, temperatura, tensao, corrente])
 
-            time.sleep(0.02)
-
-    except Exception as e:
-        print('[SERIAL] ERRO:', e)
+    except serial.SerialException as e:
+        print(f'[SERIAL] Erro: {e}')
+    finally:
+        print('[SERIAL] Thread finalizada.')
 
 
 t = threading.Thread(target=thread_serial, daemon=True)
@@ -241,35 +241,28 @@ def gerar_pdf():
 
     ui.download(arquivo)
 
-# =========================
-# DASHBOARD PRINCIPAL
-# =========================
 
-LIMITE_RPM_PERIGO = 3000  # <<< AJUSTE AQUI O LIMITE DE PERIGO
-
+# ==========================
+# PÁGINAS
+# ==========================
 @ui.page('/')
 def dashboard():
     aplicar_tema()
     menu()
 
-    # CONTAINER PRINCIPAL OCUPA TUDO E FICA À ESQUERDA
-    with ui.column().classes('p-6 gap-6 w-full items-start'):
+    with ui.column().classes('p-6 gap-6'):
 
         ui.label('Dashboard — Monitoramento em tempo real') \
             .classes('text-2xl font-semibold text-gray-800')
 
         # =========================
-        # GRID DE INDICADORES
+        # GRID DE INDICADORES (4)
         # =========================
         with ui.grid(columns=4).classes('gap-4 w-full'):
             def card(titulo, subtitulo):
-                with ui.card().classes(
-                    'p-4 bg-white rounded-xl shadow-sm w-full'
-                ):
+                with ui.card().classes('p-4 bg-white rounded-xl shadow-sm'):
                     ui.label(titulo).classes('text-xs uppercase text-gray-500')
-                    valor = ui.label('0.00').classes(
-                        'text-3xl font-bold text-gray-800'
-                    )
+                    valor = ui.label('0.00').classes('text-3xl font-bold text-gray-800')
                     ui.label(subtitulo).classes('text-xs text-gray-400')
                 return valor
 
@@ -279,14 +272,11 @@ def dashboard():
             lbl_corr = card('Corrente (A)', 'Consumo')
 
         # =========================
-        # PRIMEIRA LINHA DE GRÁFICOS
+        # GRID DE GRÁFICOS (2)
         # =========================
-        with ui.grid(columns=3).classes('gap-4 w-full'):
-            # RPM
-            with ui.card().classes('p-4 bg-white rounded-xl shadow-sm col-span-2'):
-                ui.label('RPM × Tempo').classes(
-                    'text-sm font-semibold text-gray-700 mb-1'
-                )
+        with ui.grid(columns=2).classes('gap-4 w-full'):
+            with ui.card().classes('p-4 bg-white rounded-xl shadow-sm'):
+                ui.label('RPM × Tempo').classes('text-sm font-semibold text-gray-700 mb-1')
                 chart_rpm = ui.echart({
                     'tooltip': {'trigger': 'axis'},
                     'xAxis': {'type': 'category', 'data': []},
@@ -299,31 +289,8 @@ def dashboard():
                     }],
                 }).classes('h-64')
 
-            # STATUS
-            with ui.card().classes(
-                'p-4 bg-white rounded-xl shadow-sm border-l-4 border-green-600'
-            ):
-                ui.label('Status do Sistema').classes(
-                    'text-sm font-semibold text-gray-700'
-                )
-                lbl_status = ui.label('NORMAL').classes(
-                    'text-2xl font-bold text-green-600 mt-2'
-                )
-                lbl_limite = ui.label(
-                    'Limite de segurança: 3000 RPM'
-                ).classes('text-xs text-gray-500 mt-1')
-                lbl_rpm_atual = ui.label(
-                    'RPM atual: —'
-                ).classes('text-xs text-gray-500 mt-4')
-
-        # =========================
-        # SEGUNDA LINHA DE GRÁFICOS
-        # =========================
-        with ui.grid(columns=2).classes('gap-4 w-full'):
             with ui.card().classes('p-4 bg-white rounded-xl shadow-sm'):
-                ui.label('Temperatura × Tempo').classes(
-                    'text-sm font-semibold text-gray-700 mb-1'
-                )
+                ui.label('Temperatura × Tempo').classes('text-sm font-semibold text-gray-700 mb-1')
                 chart_temp = ui.echart({
                     'tooltip': {'trigger': 'axis'},
                     'xAxis': {'type': 'category', 'data': []},
@@ -334,12 +301,14 @@ def dashboard():
                         'smooth': True,
                         'showSymbol': False,
                     }],
-                }).classes('h-56')
+                }).classes('h-64')
 
+        # =========================
+        # GRID DE GRÁFICOS (2)
+        # =========================
+        with ui.grid(columns=2).classes('gap-4 w-full'):
             with ui.card().classes('p-4 bg-white rounded-xl shadow-sm'):
-                ui.label('Tensão × Corrente').classes(
-                    'text-sm font-semibold text-gray-700 mb-1'
-                )
+                ui.label('Tensão × Corrente').classes('text-sm font-semibold text-gray-700 mb-1')
                 chart_vi = ui.echart({
                     'tooltip': {},
                     'xAxis': {'type': 'value', 'name': 'Tensão (V)'},
@@ -348,18 +317,11 @@ def dashboard():
                         'type': 'scatter',
                         'data': [],
                     }],
-                }).classes('h-56')
+                }).classes('h-64')
 
-        # =========================
-        # ÚLTIMA LINHA SERIAL
-        # =========================
-        with ui.card().classes('p-4 bg-white rounded-xl shadow-sm w-full'):
-            ui.label('Última linha recebida da serial').classes(
-                'text-sm font-semibold text-gray-700 mb-1'
-            )
-            lbl_ultima = ui.label('—').classes(
-                'text-xs text-gray-500 break-all'
-            )
+            with ui.card().classes('p-4 bg-white rounded-xl shadow-sm'):
+                ui.label('Última linha da serial').classes('text-sm font-semibold text-gray-700 mb-1')
+                lbl_ultima = ui.label('—').classes('text-xs text-gray-500 break-all')
 
         # =========================
         # ATUALIZAÇÃO
@@ -373,21 +335,12 @@ def dashboard():
                 return
 
             h = hist[-1]
-            rpm = h['rpm']
 
-            lbl_rpm.text = f'{rpm:.2f}'
-            lbl_temp.text = f'{h["temperatura"]:.2f}'
-            lbl_tensao.text = f'{h["tensao"]:.2f}'
-            lbl_corr.text = f'{h["corrente"]:.2f}'
+            lbl_rpm.text = f"{h['rpm']:.2f}"
+            lbl_temp.text = f"{h['temperatura']:.2f}"
+            lbl_tensao.text = f"{h['tensao']:.2f}"
+            lbl_corr.text = f"{h['corrente']:.2f}"
             lbl_ultima.text = ultima or '—'
-            lbl_rpm_atual.text = f'RPM atual: {rpm:.2f}'
-
-            if rpm > 3000:
-                lbl_status.text = 'ALERTA'
-                lbl_status.classes('text-red-600')
-            else:
-                lbl_status.text = 'NORMAL'
-                lbl_status.classes('text-green-600')
 
             xs = [i['ts'].split(' ')[1] for i in hist]
 
@@ -408,81 +361,14 @@ def dashboard():
 
 
 
-# ==========================
-# ENVIO DE COMANDOS SERIAL
-# ==========================
-def enviar_serial(comando: str):
-    global serial_conn
-
-    if serial_conn is None or not serial_conn.is_open:
-        ui.notify('Serial não conectada', color='negative')
-        return
-
-    try:
-        serial_conn.write((comando + '\n').encode())
-        serial_conn.flush()
-        print(f'[SERIAL TX] {comando}')
-        ui.notify(f'Comando enviado: {comando}', color='positive')
-    except Exception as e:
-        ui.notify(f'Erro ao enviar comando: {e}', color='negative')
-
-
-
 @ui.page('/calibracao')
 def calibracao():
     aplicar_tema()
     menu()
-
-    with ui.column().classes('p-6 gap-4'):
-        ui.label("Calibração / Testes").classes("text-2xl font-semibold text-gray-800")
-
-        ui.label(
-            "Envio manual de comandos para testes de hardware, relés, LEDs, motores, etc."
-        ).classes("text-sm text-gray-500")
-
-        with ui.card().classes("p-4 bg-white rounded-xl shadow-sm max-w-xl"):
-            ui.label("Controle direto por pino").classes(
-                "text-sm font-semibold text-gray-700 mb-2"
-            )
-
-            pino = ui.number(
-                "Número do pino",
-                value=13,
-                min=0,
-                max=53,
-                step=1,
-            ).classes("w-full")
-
-            with ui.row().classes("gap-2 mt-3"):
-                ui.button(
-                    "🔌 LIGAR",
-                    on_click=lambda: enviar_serial(f"l{int(pino.value)}"),
-                ).classes("bg-green-600 text-white")
-
-                ui.button(
-                    "⛔ DESLIGAR",
-                    on_click=lambda: enviar_serial(f"d{int(pino.value)}"),
-                ).classes("bg-red-600 text-white")
-
-        # =========================
-        # COMANDOS RÁPIDOS
-        # =========================
-        with ui.card().classes("p-4 bg-white rounded-xl shadow-sm max-w-xl"):
-            ui.label("Comandos rápidos").classes(
-                "text-sm font-semibold text-gray-700 mb-2"
-            )
-
-            with ui.row().classes("gap-2"):
-                ui.button(
-                    "Liga Relé (Pino 8)",
-                    on_click=lambda: enviar_serial("l8"),
-                ).classes("bg-primary text-white")
-
-                ui.button(
-                    "Desliga Relé (Pino 8)",
-                    on_click=lambda: enviar_serial("d8"),
-                ).classes("bg-white text-primary border border-primary")
-
+    with ui.column().classes('p-6 gap-2'):
+        ui.label("Calibração/Testes").classes("text-2xl font-semibold text-gray-800")
+        ui.label("Área reservada para rotinas de calibração, acionamento de relés, testes manuais, etc.") \
+            .classes("text-sm text-gray-500")
 
 
 @ui.page('/relatorios')
