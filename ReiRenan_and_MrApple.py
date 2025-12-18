@@ -148,8 +148,6 @@ def menu():
                 .classes('text-primary text-sm')
             ui.button('Relatórios', on_click=lambda: ui.navigate.to('/relatorios')) \
                 .classes('text-primary text-sm')
-            ui.button('Histórico', on_click=lambda: ui.navigate.to('/historico')) \
-                .classes('text-primary text-sm')
             ui.button('Configurações', on_click=lambda: ui.navigate.to('/configuracoes')) \
                 .classes('text-primary text-sm')
             ui.button('Resumo da Sessão', on_click=lambda: ui.navigate.to('/resumo')) \
@@ -245,7 +243,7 @@ def gerar_pdf():
 # DASHBOARD PRINCIPAL
 # =========================
 
-LIMITE_RPM_PERIGO = 3000  # <<< AJUSTE AQUI O LIMITE DE PERIGO
+LIMITE_RPM_PERIGO = 35  # <<< AJUSTE AQUI O LIMITE DE PERIGO
 
 @ui.page('/')
 def dashboard():
@@ -310,7 +308,7 @@ def dashboard():
                     'text-2xl font-bold text-green-600 mt-2'
                 )
                 lbl_limite = ui.label(
-                    'Limite de segurança: 3000 RPM'
+                    'Limite de segurança: 50 RPM'
                 ).classes('text-xs text-gray-500 mt-1')
                 lbl_rpm_atual = ui.label(
                     'RPM atual: —'
@@ -382,7 +380,7 @@ def dashboard():
             lbl_ultima.text = ultima or '—'
             lbl_rpm_atual.text = f'RPM atual: {rpm:.2f}'
 
-            if rpm > 3000:
+            if rpm > 50:
                 lbl_status.text = 'ALERTA'
                 lbl_status.classes('text-red-600')
             else:
@@ -501,35 +499,6 @@ def relatorios():
 
             ui.button("📄 Baixar PDF", on_click=gerar_pdf).classes("mt-1 bg-primary text-white")
             ui.button("📊 Baixar Excel (XLSX)", on_click=gerar_excel).classes("mt-2 bg-white text-primary border border-primary")
-
-
-@ui.page('/historico')
-def historico():
-    aplicar_tema()
-    menu()
-    with ui.column().classes('p-6 gap-4'):
-        ui.label("Histórico de medições").classes("text-2xl font-semibold text-gray-800")
-
-        with ui.card().classes('mt-2 p-4 bg-white rounded-xl shadow-sm w-full'):
-            ui.label(f"Arquivo CSV atual: {ARQUIVO_CSV}").classes('text-xs text-gray-500 mb-2')
-
-            tabela = ui.table({
-                'columns': [
-                    {'name': 'ts', 'label': 'Timestamp', 'field': 'ts'},
-                    {'name': 'rpm', 'label': 'RPM', 'field': 'rpm'},
-                    {'name': 'temperatura', 'label': 'Temp (°C)', 'field': 'temperatura'},
-                    {'name': 'tensao', 'label': 'Tensão (V)', 'field': 'tensao'},
-                    {'name': 'corrente', 'label': 'Corrente (A)', 'field': 'corrente'},
-                ],
-                'rows': [],
-            }).classes('w-full')
-
-            def atualizar():
-                with lock:
-                    tabela.options['rows'] = estado['historico'][-200:]
-                    tabela.update()
-
-            ui.timer(2, atualizar)
 
 
 @ui.page('/configuracoes')
